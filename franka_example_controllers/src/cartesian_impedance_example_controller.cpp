@@ -5,6 +5,8 @@
 #include <cmath>
 #include <memory>
 
+#include <franka_msgs/SetEEFrame.h>
+
 #include <controller_interface/controller_base.h>
 #include <franka/robot_state.h>
 #include <pluginlib/class_list_macros.h>
@@ -16,6 +18,36 @@ namespace franka_example_controllers {
 
 bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robot_hw,
                                                ros::NodeHandle& node_handle) {
+  franka_msgs::SetEEFrameRequest request;
+  request.NE_T_EE = {
+      -1,0,0,0,
+      0,-1,0,0,
+      0,0,1,0,
+      0,0,0.2,1
+  };
+  franka_msgs::SetEEFrameResponse response;
+  response.success = false;
+  response.error = "";
+  ros::ServiceClient set_EE_frame_client =
+      node_handle.serviceClient<franka_msgs::SetEEFrame>("/set_EE_frame");
+
+  if(set_EE_frame_client.waitForExistence()) {
+    ROS_INFO_STREAM_NAMED("PivotController", "Service /franka_control/set_EE_frame available, calling!" );
+    set_EE_frame_client.call(request, response);
+    if(!response.success) {
+      ROS_ERROR_STREAM_NAMED(
+          "PivotController", "Could not set the Frame from Endeffector (Flange) to Tooltip, " << response.error);
+      return false;
+    } else {
+      ROS_INFO_STREAM_NAMED("PivotController", "Success" );
+    }
+  }
+  else {
+    ROS_ERROR_STREAM_NAMED(
+        "PivotController", "Not set_EE_frame service available!");
+    return false;
+  }
+
   std::vector<double> cartesian_stiffness_vector;
   std::vector<double> cartesian_damping_vector;
 
