@@ -1,0 +1,33 @@
+<?xml version="1.0" ?>
+<launch>
+    <arg name="operation_type" default="false" doc="Can be [robot] or [simulation]" />
+    <arg name="original_controller" default="true" doc="Run with original controller" />
+    <arg name="run_simulation"     value="$(eval arg('operation_type') == 'simulation')"  doc="Should the gazebo simulation be launched? Use false in case if you want to include this file and launch gazebo yourself" />
+    <arg name="run_robot"   value="$(eval arg('operation_type') == 'robot')"/>
+    <arg name="robot_ip"/>
+
+    <param name="/cartesian_impedance_example_controller/original_controller" value="$(arg original_controller)"/>
+    <param name="/cartesian_impedance_example_controller/operation_type" value="$(arg operation_type)"/>
+
+    <include file="$(find franka_gazebo)/launch/panda.launch" if="$(arg run_simulation)">
+        <arg name="rviz" value="false"/>
+        <arg name="headless" value="true"/>
+        <arg name="controller" value="cartesian_impedance_example_controller"/>
+        <arg name="use_gripper" value="false"/>
+        <arg name="interactive" value="false"/>
+    </include>
+    <include file="$(find franka_example_controllers)/launch/cartesian_impedance_example_controller.launch" if="$(arg run_robot)">
+        <arg name="robot_ip" value="$(arg robot_ip)"/>
+        <arg name="load_gripper" value="false"/>
+        <arg name="rviz" value="false"/>
+        <arg name="interactive" value="false"/>
+    </include>
+
+    <node pkg="rviz" type="rviz" output="screen" name="rviz"
+          args="-d $(find franka_example_controllers)/launch/rviz/franka_description_with_axis.rviz"/>
+    <node name = "error_plot_rqt" pkg = "rqt_gui" type = "rqt_gui" respawn = "false" output = "screen"
+          args = "--perspective-file $(find franka_example_controllers)/launch/rqt/error_plot.perspective"
+          launch-prefix="bash -c 'sleep 5; $0 $@' "/>
+
+    <node pkg="rosbag" type="play" name="player" output="screen" args="--loop $(find franka_example_controllers)/bags/2022-04-19-14-45-17.bag"/>
+</launch>
