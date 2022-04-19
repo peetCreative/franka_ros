@@ -67,8 +67,9 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
       0,1,0,
       0,0,1
   };
-  requestLoad.F_x_center_load = {0,0,0};
-  requestLoad.mass = 0;
+  requestLoad.F_x_center_load = {
+      F_x_center_load_[0],F_x_center_load_[1],F_x_center_load_[2]};
+  requestLoad.mass = mass_;
   franka_msgs::SetLoadResponse responseLoad;
   responseLoad.success = false;
   responseLoad.error = "";
@@ -119,6 +120,11 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
         "CartesianImpedanceExampleController: Whish controller should be used is not given, "
         "aborting controller init!");
     return false;
+  }
+
+  if (node_handle.getParam("add_gravity", add_gravity_)) {
+    ROS_INFO(
+        "CartesianImpedanceExampleController: Take gravity into account for the controller.");
   }
 
   auto* model_interface = robot_hw->get<franka_hw::FrankaModelInterface>();
@@ -219,10 +225,12 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
   std::array<double, 49> mass_array = model_handle_->getMass();
   std::array<double, 42> jacobian_array =
       model_handle_->getZeroJacobian(franka::Frame::kEndEffector);
+  std::array<double, 7> gravity_array = model_handle_->getGravity(robot_state.q, mass_, F_x_center_load_, gravity_earth_);
 
   // convert to Eigen
   Eigen::Map<Eigen::Matrix<double, 7, 1>> coriolis(coriolis_array.data());
   Eigen::Map<Eigen::Matrix<double, 6, 7>> jacobian(jacobian_array.data());
+  Eigen::Map<Eigen::Matrix<double, 7, 1>> gravity(gravity_array.data());
   Eigen::Map<Eigen::Matrix<double, 7, 7>> mass(mass_array.data());
   Eigen::Map<Eigen::Matrix<double, 7, 1>> q(robot_state.q.data());
   Eigen::Map<Eigen::Matrix<double, 7, 1>> dq(robot_state.dq.data());
@@ -273,7 +281,18 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
                        (nullspace_stiffness_ * (q_d_nullspace_ - q) -
                         (2.0 * sqrt(nullspace_stiffness_)) * dq);
   // Desired torque
-  tau_d << tau_task + tau_nullspace + coriolis;
+  if (add_gravity_) {
+    ROS_INFO_ONCE_NAMED("PivotController", "Add gravity!");
+    tau_d <<
+          tau_task
+          + tau_nullspace
+          + coriolis
+          + gravity
+        ;
+  }
+  else {
+    tau_d << tau_task + tau_nullspace + coriolis;
+  }
   // Saturate torque rate to avoid discontinuities
   tau_d << saturateTorqueRate(tau_d, tau_J_d);
   for (size_t i = 0; i < 7; ++i) {

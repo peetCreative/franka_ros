@@ -2,12 +2,14 @@
 <launch>
     <arg name="operation_type" default="false" doc="Can be [robot] or [simulation]" />
     <arg name="original_controller" default="true" doc="Run with original controller" />
+    <arg name="add_gravity" default="false" doc="Run with add gravity (makes only sense for robot)" />
     <arg name="run_simulation"     value="$(eval arg('operation_type') == 'simulation')"  doc="Should the gazebo simulation be launched? Use false in case if you want to include this file and launch gazebo yourself" />
     <arg name="run_robot"   value="$(eval arg('operation_type') == 'robot')"/>
     <arg name="robot_ip"/>
 
     <param name="/cartesian_impedance_example_controller/original_controller" value="$(arg original_controller)"/>
     <param name="/cartesian_impedance_example_controller/operation_type" value="$(arg operation_type)"/>
+    <param name="/cartesian_impedance_example_controller/add_gravity" value="$(arg add_gravity)"/>
 
     <include file="$(find franka_gazebo)/launch/panda.launch" if="$(arg run_simulation)">
         <arg name="rviz" value="false"/>

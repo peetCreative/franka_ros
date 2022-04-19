@@ -56,6 +56,10 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   Eigen::Vector3d position_d_target_;
   Eigen::Quaterniond orientation_d_target_;
   bool use_original_controller_;
+  std::array<double, 3> gravity_earth_ {0,0,-0.981};
+  double mass_ {0.0};
+  std::array<double, 3> F_x_center_load_ {0, 0, 0};
+  bool add_gravity_ {false};
 
   // Dynamic reconfigure
   std::unique_ptr<dynamic_reconfigure::Server<franka_example_controllers::compliance_paramConfig>>
