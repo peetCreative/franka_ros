@@ -6,6 +6,7 @@
 #include <memory>
 
 #include <franka_msgs/SetEEFrame.h>
+#include <franka_msgs/SetLoad.h>
 
 #include <controller_interface/controller_base.h>
 #include <franka/robot_state.h>
@@ -13,38 +14,82 @@
 #include <ros/ros.h>
 
 #include <franka_example_controllers/pseudo_inversion.h>
+#include <std_msgs/Float64.h>
 
 namespace franka_example_controllers {
 
 bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robot_hw,
                                                ros::NodeHandle& node_handle) {
-  franka_msgs::SetEEFrameRequest request;
-  request.NE_T_EE = {
-      -1,0,0,0,
-      0,-1,0,0,
+  std::string operation_type_str;
+  if (!node_handle.getParam("operation_type", operation_type_str)) {
+    ROS_ERROR_STREAM("CartesianImpedanceExampleController: Could not read parameter operation_type");
+    return false;
+  }
+  std::string service_prefix {""};
+  if (operation_type_str == "robot") {
+    service_prefix = "/franka_control";
+  }
+
+  franka_msgs::SetEEFrameRequest requestEEFrame;
+  requestEEFrame.NE_T_EE = {
+      1,0,0,0,
+      0,1,0,0,
       0,0,1,0,
-      0,0,0.2,1
+      0,0,0,1
   };
-  franka_msgs::SetEEFrameResponse response;
-  response.success = false;
-  response.error = "";
+  franka_msgs::SetEEFrameResponse responseEEFrame;
+  responseEEFrame.success = false;
+  responseEEFrame.error = "";
   ros::ServiceClient set_EE_frame_client =
-      node_handle.serviceClient<franka_msgs::SetEEFrame>("/set_EE_frame");
+      node_handle.serviceClient<franka_msgs::SetEEFrame>(service_prefix + "/set_EE_frame");
 
   if(set_EE_frame_client.waitForExistence()) {
-    ROS_INFO_STREAM_NAMED("PivotController", "Service /franka_control/set_EE_frame available, calling!" );
-    set_EE_frame_client.call(request, response);
-    if(!response.success) {
+    ROS_INFO_STREAM_NAMED("CartesianImpedanceExampleController",
+                          "Service " << set_EE_frame_client.getService() << " available, calling!" );
+    set_EE_frame_client.call(requestEEFrame, responseEEFrame);
+    if(!responseEEFrame.success) {
       ROS_ERROR_STREAM_NAMED(
-          "PivotController", "Could not set the Frame from Endeffector (Flange) to Tooltip, " << response.error);
+          "PivotController", "Could not set the Frame from Endeffector (Flange) to Tooltip, " << responseEEFrame.error);
       return false;
     } else {
-      ROS_INFO_STREAM_NAMED("PivotController", "Success" );
+      ROS_INFO_STREAM_NAMED("CartesianImpedanceExampleController", "Success SetEEFrame" );
     }
   }
   else {
     ROS_ERROR_STREAM_NAMED(
-        "PivotController", "Not set_EE_frame service available!");
+        "CartesianImpedanceExampleController", "Not set_EE_frame service available!");
+    return false;
+  }
+
+  franka_msgs::SetLoadRequest requestLoad;
+  requestLoad.load_inertia = {
+      1,0,0,
+      0,1,0,
+      0,0,1
+  };
+  requestLoad.F_x_center_load = {0,0,0};
+  requestLoad.mass = 0;
+  franka_msgs::SetLoadResponse responseLoad;
+  responseLoad.success = false;
+  responseLoad.error = "";
+  ros::ServiceClient set_Load_client =
+      node_handle.serviceClient<franka_msgs::SetLoad>(service_prefix + "/set_load");
+
+  if(set_Load_client.waitForExistence()) {
+    ROS_INFO_STREAM_NAMED("CartesianImpedanceExampleController",
+                          "Service " << set_Load_client.getService()  << ", calling!" );
+    set_Load_client.call(requestLoad, responseLoad);
+    if(!responseLoad.success) {
+      ROS_ERROR_STREAM_NAMED(
+          "CartesianImpedanceExampleController", "Could not set Load of Tooltip, " << responseLoad.error);
+      return false;
+    } else {
+      ROS_INFO_STREAM_NAMED("CartesianImpedanceExampleController", "Success SetLoad" );
+    }
+  }
+  else {
+    ROS_ERROR_STREAM_NAMED(
+        "CartesianImpedanceExampleController", "Not set_Load service available!");
     return false;
   }
 
@@ -54,6 +99,7 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
   sub_equilibrium_pose_ = node_handle.subscribe(
       "equilibrium_pose", 20, &CartesianImpedanceExampleController::equilibriumPoseCallback, this,
       ros::TransportHints().reliable().tcpNoDelay());
+  pub_error_ = node_handle.advertise<std_msgs::Float64>("error", 1000);
 
   std::string arm_id;
   if (!node_handle.getParam("arm_id", arm_id)) {
@@ -64,6 +110,13 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
   if (!node_handle.getParam("joint_names", joint_names) || joint_names.size() != 7) {
     ROS_ERROR(
         "CartesianImpedanceExampleController: Invalid or no joint_names parameters provided, "
+        "aborting controller init!");
+    return false;
+  }
+
+  if (!node_handle.getParam("original_controller", use_original_controller_)) {
+    ROS_ERROR(
+        "CartesianImpedanceExampleController: Whish controller should be used is not given, "
         "aborting controller init!");
     return false;
   }
@@ -163,12 +216,14 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
   // get state variables
   franka::RobotState robot_state = state_handle_->getRobotState();
   std::array<double, 7> coriolis_array = model_handle_->getCoriolis();
+  std::array<double, 49> mass_array = model_handle_->getMass();
   std::array<double, 42> jacobian_array =
       model_handle_->getZeroJacobian(franka::Frame::kEndEffector);
 
   // convert to Eigen
   Eigen::Map<Eigen::Matrix<double, 7, 1>> coriolis(coriolis_array.data());
   Eigen::Map<Eigen::Matrix<double, 6, 7>> jacobian(jacobian_array.data());
+  Eigen::Map<Eigen::Matrix<double, 7, 7>> mass(mass_array.data());
   Eigen::Map<Eigen::Matrix<double, 7, 1>> q(robot_state.q.data());
   Eigen::Map<Eigen::Matrix<double, 7, 1>> dq(robot_state.dq.data());
   Eigen::Map<Eigen::Matrix<double, 7, 1>> tau_J_d(  // NOLINT (readability-identifier-naming)
@@ -198,8 +253,16 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
 
   // pseudoinverse for nullspace handling
   // kinematic pseuoinverse
+  Eigen::MatrixXd mass_inv = mass.inverse();
   Eigen::MatrixXd jacobian_transpose_pinv;
-  pseudoInverse(jacobian.transpose(), jacobian_transpose_pinv);
+  if (use_original_controller_) {
+    ROS_INFO_ONCE("USE ORIGINAL PSEUDO INVERSE");
+    pseudoInverse(jacobian.transpose(), jacobian_transpose_pinv);
+  }
+  else {
+    ROS_INFO_ONCE("USE WEIGHTED PSEUDO INVERSE");
+    jacobian_transpose_pinv = (mass_inv * jacobian.transpose() * (jacobian * mass_inv * jacobian.transpose()).inverse()).transpose();
+  }
 
   // Cartesian PD control with damping ratio = 1
   tau_task << jacobian.transpose() *
@@ -271,6 +334,11 @@ void CartesianImpedanceExampleController::equilibriumPoseCallback(
   if (last_orientation_d_target.coeffs().dot(orientation_d_target_.coeffs()) < 0.0) {
     orientation_d_target_.coeffs() << -orientation_d_target_.coeffs();
   }
+  franka::RobotState robot_state = state_handle_->getRobotState();
+  Eigen::Affine3d transform(Eigen::Matrix4d::Map(robot_state.O_T_EE.data()));
+  std_msgs::Float64 error_msg;
+  error_msg.data = (position_d_target_ - transform.translation()).norm();
+  pub_error_.publish(error_msg);
 }
 
 }  // namespace franka_example_controllers

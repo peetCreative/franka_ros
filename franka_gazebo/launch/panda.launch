@@ -7,6 +7,8 @@
   <arg name="paused"      default="false" doc="Should the simulation directly be stopped at 0s?" />
   <arg name="world"       default="worlds/empty.world" doc="Filename to a SDF World for gazebo to use" />
   <arg name="rviz"        default="false" doc="Should RVIz be launched?" />
+  <arg name="interactive" default="false" doc="Should the interactive control in Rviz be activated" />
+  <arg name="original_controller" default="false" doc="Run with original controller" />
 
   <!-- Robot Customization -->
   <arg name="arm_id"      default="panda" doc="Name of the panda robot to spawn" />
@@ -30,6 +32,8 @@
                 -J $(arg arm_id)_finger_joint1 0.001
                 -J $(arg arm_id)_finger_joint2 0.001"
        />
+
+  <param name="/cartesian_impedance_example_controller/original_controller" value="$(arg original_controller)"/>
 
   <include file="$(find gazebo_ros)/launch/empty_world.launch" if="$(arg gazebo)">
     <arg name="world_name" value="$(arg world)"/>
@@ -88,7 +92,7 @@
   <node name="interactive_marker"
         pkg="franka_example_controllers"
         type="interactive_marker.py"
-        if="$(eval arg('controller') == 'cartesian_impedance_example_controller')">
+        if="$(eval arg('controller') == 'cartesian_impedance_example_controller' and arg('interactive'))">
     <param name="link_name" value="$(arg arm_id)_link0" />
     <remap to="cartesian_impedance_example_controller/equilibrium_pose" from="equilibrium_pose" />
   </node>

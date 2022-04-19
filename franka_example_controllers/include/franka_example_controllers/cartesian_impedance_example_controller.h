@@ -55,6 +55,7 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   std::mutex position_and_orientation_d_target_mutex_;
   Eigen::Vector3d position_d_target_;
   Eigen::Quaterniond orientation_d_target_;
+  bool use_original_controller_;
 
   // Dynamic reconfigure
   std::unique_ptr<dynamic_reconfigure::Server<franka_example_controllers::compliance_paramConfig>>
@@ -65,6 +66,7 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
 
   // Equilibrium pose subscriber
   ros::Subscriber sub_equilibrium_pose_;
+  ros::Publisher pub_error_;
   void equilibriumPoseCallback(const geometry_msgs::PoseStampedConstPtr& msg);
 };
 
