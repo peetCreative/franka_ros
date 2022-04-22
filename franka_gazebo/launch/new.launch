@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<launch>
+
+    <include file="$(find gazebo_ros)/launch/empty_world.launch"/>
+
+    <group ns="franka_control">
+    <include file="$(find franka_gazebo)/launch/panda.launch">
+        <arg name="gazebo" value="false" />
+        <arg name="use_gripper" value="false"/>
+        <arg name="rviz" value="true"/>
+        <arg name="controller" value="cartesian_impedance_example_controller"/>
+    </include>
+    </group>
+
+</launch>
